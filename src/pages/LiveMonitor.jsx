@@ -1,27 +1,67 @@
 import { Link } from "react-router-dom";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import Chart from "chart.js/auto";
+import { getDomains, searchWords } from "../services/api";
 
 function LiveMonitor() {
   const chartRef = useRef(null);
+  const donutRef = useRef(null);
 
+  const [globalDomains, setGlobalDomains] = useState([]);
+  const [activeQuery, setActiveQuery] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [queryData, setQueryData] = useState([]);
+
+  // Fetch initial base data
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const doms = await getDomains();
+        setGlobalDomains(doms);
+
+        // Optional: fetch a default search if none is selected
+        const defaultSearch = "data"; // fallback if you don't keep topWords anymore
+        setSearchTerm(defaultSearch);
+        handleSearch(defaultSearch);
+      } catch (err) {
+        console.error("LiveMonitor fetch failed:", err);
+      }
+    }
+    fetchData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSearch = async (queryToSearch) => {
+    const query = queryToSearch || searchTerm;
+    if (!query) return;
+    try {
+      const results = await searchWords(query);
+      // Sort to get best domains first
+      results.sort((a, b) => b.frequency - a.frequency);
+      setQueryData(results);
+      setActiveQuery(query);
+    } catch (err) {
+      console.error("Search failed:", err);
+    }
+  };
+
+  // KPIs centered on activeQuery
+  const totalFrequency = useMemo(() => queryData.reduce((sum, d) => sum + d.frequency, 0), [queryData]);
+  const uniqueDomainsCount = queryData.length;
+  const pagesIndexed = useMemo(() => globalDomains.reduce((sum, d) => sum + (d.total_words || 0), 0), [globalDomains]);
+  const topDomain = queryData.length > 0 ? queryData[0].domain : "N/A";
+
+  // Bar Chart (Frequency per domain for activeQuery)
   useEffect(() => {
     if (!chartRef.current) return;
-
     const chart = new Chart(chartRef.current, {
       type: "bar",
       data: {
-        labels: Array.from({ length: 24 }, (_, i) => i),
+        labels: queryData.map(d => d.domain),
         datasets: [
           {
-            data: [
-              45, 80, 130, 340, 190, 220, 160, 110,
-              95, 140, 180, 130, 90, 75, 60, 50,
-              120, 200, 170, 130, 100, 85, 70, 55
-            ],
-            backgroundColor: [
-              ...Array(24).fill("rgba(77,158,255,0.25)")
-            ].map((c, i) => (i === 10 ? "#4d9eff" : c)),
+            data: queryData.map(d => d.frequency),
+            backgroundColor: queryData.map((_, i) => i === 0 ? "#4d9eff" : "rgba(77,158,255,0.25)"),
             borderRadius: 4,
           },
         ],
@@ -29,14 +69,37 @@ function LiveMonitor() {
       options: {
         plugins: { legend: { display: false } },
         scales: {
-          x: { ticks: { color: "#aaa" } },
+          x: { ticks: { color: "#aaa", autoSkip: false, maxRotation: 45, minRotation: 45 } },
           y: { ticks: { color: "#aaa" } },
         },
       },
     });
-
     return () => chart.destroy();
-  }, []);
+  }, [queryData]);
+
+  // Donut Chart (Domain breakdown for activeQuery)
+  useEffect(() => {
+    if (!donutRef.current) return;
+    const chart = new Chart(donutRef.current, {
+      type: "doughnut",
+      data: {
+        labels: queryData.map(d => d.domain),
+        datasets: [{
+          data: queryData.map(d => d.frequency),
+          backgroundColor: queryData.map((_, i) => `hsl(${210 + (i % 5) * 20}, 70%, ${50 + (i % 3) * 10}%)`),
+          borderWidth: 0,
+        }],
+      },
+      options: {
+        cutout: '75%',
+        plugins: {
+          legend: { display: false },
+          tooltip: { enabled: true }
+        }
+      }
+    });
+    return () => chart.destroy();
+  }, [queryData]);
 
   return (
     <div className="app-shell">
@@ -92,10 +155,23 @@ function LiveMonitor() {
         <main className="content-area">
 
           {/* HEADER */}
-          <div className="title-row">
+          <div className="title-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div className="deep-dive-label">ACTIVE DEEP-DIVE</div>
-              <div className="deep-dive-title">"Jai Shree Ram"</div>
+              <div className="deep-dive-title" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                "{activeQuery}"
+                <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', padding: '0 8px' }}>
+                  <input 
+                    type="text" 
+                    value={searchTerm} 
+                    onChange={e => setSearchTerm(e.target.value)} 
+                    onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                    placeholder="Search query..."
+                    style={{ background: 'transparent', border: 'none', color: '#fff', padding: '8px', outline: 'none', fontSize: '1rem', width: '200px' }}
+                  />
+                  <button onClick={() => handleSearch()} style={{ background: 'transparent', border: 'none', color: '#4d9eff', cursor: 'pointer', fontWeight: 'bold' }}>🔍</button>
+                </div>
+              </div>
               <div className="deep-dive-sub">
                 Cross-platform analytical mapping across global news ecosystems
               </div>
@@ -111,7 +187,7 @@ function LiveMonitor() {
 
               <div className="stream-badge">
                 <div className="stream-badge-label">Timeframe</div>
-                <div className="stream-badge-value">LAST 24 HOURS</div>
+                <div className="stream-badge-value">ALL TIME</div>
               </div>
             </div>
           </div>
@@ -121,9 +197,9 @@ function LiveMonitor() {
 
             <div className="kpi-card">
               <div className="kpi-body">
-                <div className="kpi-label">Total Frequency</div>
+                <div className="kpi-label">Query Total Frequency</div>
                 <div className="kpi-value">
-                  2,410 <span style={{ fontSize: "12px", color: "#4d9eff" }}>+12%</span>
+                  {totalFrequency.toLocaleString()}
                 </div>
               </div>
               <div className="kpi-icon">#</div>
@@ -131,26 +207,26 @@ function LiveMonitor() {
 
             <div className="kpi-card">
               <div className="kpi-body">
-                <div className="kpi-label">Unique Domains</div>
-                <div className="kpi-value">12</div>
+                <div className="kpi-label">Domains Containing Query</div>
+                <div className="kpi-value">{uniqueDomainsCount}</div>
               </div>
               <div className="kpi-icon">⊞</div>
             </div>
 
             <div className="kpi-card">
               <div className="kpi-body">
-                <div className="kpi-label">Avg Sentiment</div>
-                <div className="kpi-value positive">Positive</div>
+                <div className="kpi-label">Total Indexed Words</div>
+                <div className="kpi-value">{pagesIndexed.toLocaleString()}</div>
               </div>
-              <div className="kpi-icon">😊</div>
+              <div className="kpi-icon">📄</div>
             </div>
 
             <div className="kpi-card">
               <div className="kpi-body">
-                <div className="kpi-label">Peak Frequency Hour</div>
-                <div className="kpi-value">09:00</div>
+                <div className="kpi-label">Top Domain for Query</div>
+                <div className="kpi-value" style={{ fontSize: '1.2rem', wordBreak: 'break-all' }}>{topDomain}</div>
               </div>
-              <div className="kpi-icon">⏰</div>
+              <div className="kpi-icon">🌐</div>
             </div>
 
           </div>
@@ -162,52 +238,24 @@ function LiveMonitor() {
             <div className="chart-card">
               <div className="chart-header">
                 <div>
-                  <div className="chart-title">Frequency over 24H Crawl</div>
-                  <div className="chart-sub">Real-time spike monitoring</div>
+                  <div className="chart-title">Frequency per Domain</div>
+                  <div className="chart-sub">Where is "{activeQuery}" mentioned?</div>
                 </div>
               </div>
               <canvas ref={chartRef}></canvas>
             </div>
 
-            {/* GAUGE */}
+            {/* DONUT */}
             <div className="chart-card">
               <div className="chart-title" style={{ marginBottom: "12px" }}>
-                Sentiment Analysis Gauge
+                Domain Corpus Share
               </div>
 
-              <div className="gauge-wrapper">
-                <svg className="gauge-svg" viewBox="0 0 120 70">
-                  <path d="M10,60 A50,50 0 0,1 110,60"
-                    stroke="rgba(255,255,255,0.08)"
-                    strokeWidth="8"
-                    fill="none"
-                  />
-                  <path d="M10,60 A50,50 0 0,1 110,60"
-                    stroke="#22d172"
-                    strokeWidth="8"
-                    fill="none"
-                    strokeDasharray="157"
-                    strokeDashoffset="40"
-                    strokeLinecap="round"
-                  />
-                </svg>
-
-                <div className="gauge-pct">74%</div>
-                <div className="gauge-label">OPTIMISTIC SIGNAL</div>
-
-                <div className="gauge-breakdown">
-                  <div className="gb-item">
-                    <div className="gb-label">NEG</div>
-                    <div className="gb-value neg">12%</div>
-                  </div>
-                  <div className="gb-item">
-                    <div className="gb-label">NEU</div>
-                    <div className="gb-value neu">14%</div>
-                  </div>
-                  <div className="gb-item">
-                    <div className="gb-label">POS</div>
-                    <div className="gb-value pos">74%</div>
-                  </div>
+              <div className="gauge-wrapper" style={{ position: "relative", height: "180px", display: "flex", justifyContent: "center", alignItems: "center" }}>
+                <canvas ref={donutRef} style={{ maxHeight: "180px" }}></canvas>
+                <div style={{ position: "absolute", textAlign: "center", pointerEvents: "none" }}>
+                  <div style={{ fontSize: "24px", fontWeight: "bold", color: "#fff" }}>{queryData.length}</div>
+                  <div style={{ fontSize: "10px", color: "#aaa" }}>DOMAINS</div>
                 </div>
               </div>
             </div>
@@ -218,7 +266,7 @@ function LiveMonitor() {
           <div className="snippets-card">
 
             <div className="snippets-header">
-              <div className="snippets-title">Keyword Context & Snippets</div>
+              <div className="snippets-title">Domain Breakdown: {activeQuery}</div>
 
               <div className="snippets-actions">
                 <div className="action-btn">FILTER</div>
@@ -227,47 +275,31 @@ function LiveMonitor() {
             </div>
 
             <div className="snippets-sub">
-              Real-time phrase extraction and linguistic mapping
+              Detailed frequency breakdown across all indexed domains.
             </div>
 
             <table>
               <thead>
                 <tr>
-                  <th>Source URL</th>
-                  <th>Word Count</th>
-                  <th>Context Snippet</th>
-                  <th>Crawl Timestamp</th>
+                  <th>Word</th>
+                  <th>Domain</th>
+                  <th>Frequency</th>
                 </tr>
               </thead>
 
               <tbody>
-                <tr>
-                  <td className="source-link">ndtv.com/india-news/...</td>
-                  <td>1,240</td>
-                  <td>...echoes of <span className="highlight">Jai Shree Ram</span>...</td>
-                  <td>2023-18-27</td>
-                </tr>
-
-                <tr>
-                  <td className="source-link">timesofindia...</td>
-                  <td>856</td>
-                  <td>chanting <span className="highlight">Jai Shree Ram</span>...</td>
-                  <td>2023-18-27</td>
-                </tr>
-
-                <tr>
-                  <td className="source-link">bbc.com/news...</td>
-                  <td>2,104</td>
-                  <td>digital footprint of <span className="highlight">Jai Shree Ram</span>...</td>
-                  <td>2023-18-27</td>
-                </tr>
-
-                <tr>
-                  <td className="source-link">aljazeera.com...</td>
-                  <td>1,412</td>
-                  <td>cultural identification <span className="highlight">Jai Shree Ram</span>...</td>
-                  <td>2023-18-27</td>
-                </tr>
+                {queryData.map((row, idx) => (
+                  <tr key={idx}>
+                    <td>{row.word}</td>
+                    <td className="source-link">{row.domain}</td>
+                    <td>{row.frequency}</td>
+                  </tr>
+                ))}
+                {queryData.length === 0 && (
+                  <tr>
+                    <td colSpan="3" style={{ textAlign: "center", color: "#aaa" }}>No data available for "{activeQuery}"</td>
+                  </tr>
+                )}
               </tbody>
             </table>
 
