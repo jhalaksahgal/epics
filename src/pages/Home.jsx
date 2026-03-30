@@ -5,9 +5,7 @@ function Home() {
       <nav>
         
 
-        <a href="/configuration" className="nav-links nav-cta">
-          Get Started
-        </a>
+        
       </nav>
 
      
@@ -20,24 +18,19 @@ function Home() {
         </div>
 
         <h1 className="hero-title">
-          The Sovereign<br />
-          <span>Observer</span>
+          Digital<br />
+          <span>Sentinel</span>
         </h1>
 
         <p className="hero-desc">
-          <strong>Executive Summary:</strong> Nexus Obsidian is a high-performance intelligence suite that
-          scrapes keywords from specified URLs, analyzes semantic co-occurrence
-          patterns, and visualizes complex relationships alongside real-time crawler
-          performance metrics.
+          Web-Based Intelligence Platform for Online Threat Detection
         </p>
 
         <div className="hero-actions">
           <a href="/configuration" className="btn-primary">
             Get Started →
           </a>
-          <a href="#" className="btn-secondary">
-            View Documentation
-          </a>
+          
         </div>
       </section>
 
